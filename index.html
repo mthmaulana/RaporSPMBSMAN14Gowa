@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SPMB SMAN 14 Gowa - Rata-rata Nilai Rapor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background: #f7f7f7; }
+    .container { max-width: 700px; margin: 30px auto; background: #fff; padding: 24px 32px 32px 32px; border-radius: 8px; box-shadow: 0 2px 8px #0001; }
+    h1, h2 { text-align: center; }
+    label { display: block; margin-top: 16px; }
+    input[type="text"], input[type="number"] { width: 100%; padding: 8px; margin-top: 4px; border-radius: 4px; border: 1px solid #ccc; }
+    button { margin-top: 24px; padding: 10px 24px; border: none; border-radius: 4px; background: #1976d2; color: #fff; font-size: 16px; cursor: pointer; }
+    button[disabled] { background: #aaa; }
+    .hidden { display: none; }
+    table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+    .signature-section { display: flex; justify-content: space-between; margin-top: 48px; }
+    .signature-box { width: 40%; text-align: center; }
+    .footer { text-align: right; margin-top: 24px; }
+    @media (max-width: 600px) {
+      .container { padding: 12px; }
+      .signature-section { flex-direction: column; gap: 32px; }
+      .signature-box { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="main-container">
+    <!-- Logo di bagian atas -->
+    <div style="text-align:center; margin-bottom:16px;">
+      <img src="logo/logo-sman14.png" alt="Logo SMAN 14 Gowa" width="150" height="150" style="object-fit:contain;"/>
+    </div>
+    <h1>SPMB SMAN 14 Gowa</h1>
+    <h2>Penghitung Rata-rata Nilai Rapor SMP</h2>
+    <!-- Bagian Form Data Diri -->
+    <form id="student-form">
+      <label>Nama Calon Murid:
+        <input type="text" id="nama" required>
+      </label>
+      <label>NISN:
+        <input type="text" id="nisn" required>
+      </label>
+      <label>Asal Sekolah:
+        <input type="text" id="asal" required>
+      </label>
+      <label>Nama Orang Tua/Wali:
+        <input type="text" id="ortu" required>
+      </label>
+      <button type="submit">Lanjut ke Input Nilai</button>
+    </form>
+
+    <form id="semester-form" class="hidden">
+      <h2 id="semester-title">Semester 1</h2>
+      <label>Jumlah Mata Pelajaran:
+        <input type="number" id="jumlah-mapel" min="1" max="20" required>
+      </label>
+      <button type="button" id="lanjut-mapel">Lanjut Input Nilai Mapel</button>
+    </form>
+
+    <form id="nilai-form" class="hidden">
+      <h2 id="nilai-semester-title">Semester 1</h2>
+      <div id="nilai-mapel-list"></div>
+      <button type="submit">Simpan Nilai Semester</button>
+    </form>
+
+    <div id="summary-section" class="hidden"></div>
+  </div>
+
+  <script>
+  // State
+  const studentData = {};
+  const semesterScores = []; // [{semester, jumlahMapel, nilai:[], rataRata}]
+  let currentSemester = 1;
+  let jumlahMapel = 0;
+  let currentStep = 'dataDiri'; // dataDiri | jumlahMapel | nilaiMapel | avgSemester | summary
+
+  // Elements
+  const studentForm = document.getElementById('student-form');
+  const semesterForm = document.getElementById('semester-form');
+  const nilaiForm = document.getElementById('nilai-form');
+  const summarySection = document.getElementById('summary-section');
+  const semesterTitle = document.getElementById('semester-title');
+  const nilaiSemesterTitle = document.getElementById('nilai-semester-title');
+  const nilaiMapelList = document.getElementById('nilai-mapel-list');
+  const mainContainer = document.getElementById('main-container');
+
+  // Tombol kembali dinamis
+  let backBtn = null;
+  let avgDiv = null;
+
+  // Helper untuk menampilkan tombol kembali
+  function showBackButton(onClick) {
+    if (backBtn) backBtn.remove();
+    backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.textContent = 'Kembali';
+    backBtn.style.marginRight = '12px';
+    backBtn.onclick = onClick;
+    return backBtn;
+  }
+
+  // Step 1: Input Data Siswa
+  studentForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    studentData.nama = document.getElementById('nama').value.trim();
+    studentData.nisn = document.getElementById('nisn').value.trim();
+    studentData.asal = document.getElementById('asal').value.trim();
+    studentData.ortu = document.getElementById('ortu').value.trim();
+    studentForm.classList.add('hidden');
+    semesterForm.classList.remove('hidden');
+    semesterTitle.textContent = `Semester ${currentSemester}`;
+    // Prefill jika sudah pernah diisi
+    if (semesterScores[currentSemester-1]) {
+      document.getElementById('jumlah-mapel').value = semesterScores[currentSemester-1].jumlahMapel;
+    } else {
+      document.getElementById('jumlah-mapel').value = '';
+    }
+    currentStep = 'jumlahMapel';
+    // Tambahkan tombol kembali ke semesterForm
+    if (!semesterForm.querySelector('.back-btn')) {
+      semesterForm.insertBefore(showBackButton(() => {
+        semesterForm.classList.add('hidden');
+        studentForm.classList.remove('hidden');
+        currentStep = 'dataDiri';
+      }), semesterForm.lastElementChild);
+      semesterForm.querySelector('button[type="button"]').classList.add('back-btn');
+    }
+  });
+
+  // Step 2: Input Jumlah Mapel
+  document.getElementById('lanjut-mapel').addEventListener('click', function() {
+    jumlahMapel = parseInt(document.getElementById('jumlah-mapel').value, 10);
+    if (!jumlahMapel || jumlahMapel < 1) {
+      alert('Jumlah mapel harus diisi minimal 1.');
+      return;
+    }
+    semesterForm.classList.add('hidden');
+    nilaiForm.classList.remove('hidden');
+    nilaiSemesterTitle.textContent = `Semester ${currentSemester}`;
+    renderNilaiInputs(jumlahMapel, semesterScores[currentSemester-1]?.nilai);
+    currentStep = 'nilaiMapel';
+    // Tambahkan tombol kembali ke nilaiForm
+    if (!nilaiForm.querySelector('.back-btn')) {
+      nilaiForm.insertBefore(showBackButton(() => {
+        nilaiForm.classList.add('hidden');
+        semesterForm.classList.remove('hidden');
+        currentStep = 'jumlahMapel';
+      }), nilaiForm.lastElementChild);
+      nilaiForm.querySelector('button[type="button"]').classList.add('back-btn');
+    }
+  });
+
+  // Step 3: Input Nilai Mapel
+  nilaiForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+    const nilaiInputs = document.querySelectorAll('.nilai-mapel');
+    const nilaiArr = [];
+    for (let i = 0; i < nilaiInputs.length; i++) {
+      const val = parseFloat(nilaiInputs[i].value);
+      if (isNaN(val) || val < 0 || val > 100) {
+        alert('Nilai harus diisi antara 0-100 untuk semua mapel.');
+        return;
+      }
+      nilaiArr.push(val);
+    }
+    const avg = (nilaiArr.reduce((a, b) => a + b, 0) / nilaiArr.length);
+    semesterScores[currentSemester - 1] = {
+      semester: currentSemester,
+      jumlahMapel: nilaiArr.length,
+      nilai: nilaiArr,
+      rataRata: Math.round(avg * 100) / 100
+    };
+    nilaiForm.classList.add('hidden');
+    showSemesterAverage(avg);
+    currentStep = 'avgSemester';
+  });
+
+  // Render input nilai mapel, prefill jika ada
+  function renderNilaiInputs(jumlah, nilaiArr = []) {
+    nilaiMapelList.innerHTML = '';
+    for (let i = 1; i <= jumlah; i++) {
+      const div = document.createElement('div');
+      div.innerHTML = `
+        <label>Nilai Mapel ${i}:
+          <input type="number" class="nilai-mapel" min="0" max="100" step="0.01" required value="${nilaiArr && nilaiArr[i-1] !== undefined ? nilaiArr[i-1] : ''}">
+        </label>
+      `;
+      nilaiMapelList.appendChild(div);
+    }
+  }
+
+  // Tampilkan rata-rata semester setelah input nilai
+  function showSemesterAverage(avg) {
+    if (avgDiv) avgDiv.remove();
+    avgDiv = document.createElement('div');
+    avgDiv.id = 'avg-semester';
+    avgDiv.style.textAlign = 'center';
+    avgDiv.style.marginTop = '32px';
+    avgDiv.innerHTML = `
+      <h2>Rata-rata Semester ${currentSemester}</h2>
+      <div style="font-size:2em; font-weight:bold; margin-bottom:24px;">${(Math.round(avg * 100) / 100).toFixed(2)}</div>
+    `;
+
+    // Tombol kembali ke input nilai
+    const backToNilaiBtn = showBackButton(() => {
+      avgDiv.remove();
+      nilaiForm.classList.remove('hidden');
+      currentStep = 'nilaiMapel';
+    });
+    avgDiv.appendChild(backToNilaiBtn);
+
+    // Tombol lanjut ke semester berikutnya atau ke laporan
+    const lanjutBtn = document.createElement('button');
+    lanjutBtn.type = 'button';
+    lanjutBtn.textContent = (currentSemester < 5) ? 'Lanjut ke Semester Berikutnya' : 'Lihat Laporan Akhir';
+    lanjutBtn.onclick = function() {
+      avgDiv.remove();
+      if (currentSemester < 5) {
+        currentSemester++;
+        semesterTitle.textContent = `Semester ${currentSemester}`;
+        semesterForm.classList.remove('hidden');
+        // Prefill jumlah mapel jika sudah pernah diisi
+        if (semesterScores[currentSemester-1]) {
+          document.getElementById('jumlah-mapel').value = semesterScores[currentSemester-1].jumlahMapel;
+        } else {
+          document.getElementById('jumlah-mapel').value = '';
+        }
+        currentStep = 'jumlahMapel';
+      } else {
+        showSummary();
+        currentStep = 'summary';
+      }
+    };
+    avgDiv.appendChild(lanjutBtn);
+
+    mainContainer.appendChild(avgDiv);
+    avgDiv.scrollIntoView({behavior: 'smooth'});
+  }
+
+  // Step 4: Summary
+  function showSummary(hideButtons = false) {
+    summarySection.innerHTML = '';
+    summarySection.classList.remove('hidden');
+    // Data Siswa
+    const siswaTable = `
+      <table>
+        <tr><th>Nama Murid</th><td>${studentData.nama}</td></tr>
+        <tr><th>NISN</th><td>${studentData.nisn}</td></tr>
+        <tr><th>Asal Sekolah</th><td>${studentData.asal}</td></tr>
+        <tr><th>Nama Orang Tua/Wali</th><td>${studentData.ortu}</td></tr>
+      </table>
+    `;
+
+    // Nilai Semester
+    let nilaiTable = `
+      <table style="border-collapse:collapse;">
+        <tr>
+          <th style="border:1px solid #000;">Semester</th>
+          <th style="border:1px solid #000;">Jumlah Mapel</th>
+          <th style="border:1px solid #000;">Nilai Mapel</th>
+          <th style="border:1px solid #000;">Rata-rata</th>
+        </tr>
+    `;
+    let totalRata = 0;
+    semesterScores.forEach(s => {
+      nilaiTable += `
+        <tr>
+          <td style="border:1px solid #000;">${s.semester}</td>
+          <td style="border:1px solid #000;">${s.jumlahMapel}</td>
+          <td style="border:1px solid #000;">${s.nilai.map(n => n.toFixed(2)).join(', ')}</td>
+          <td style="border:1px solid #000;">${s.rataRata.toFixed(2)}</td>
+        </tr>
+      `;
+      totalRata += s.rataRata;
+    });
+    nilaiTable += `
+      <tr>
+        <th colspan="3" style="border:1px solid #000;">Total Rata-rata</th>
+        <th style="border:1px solid #000;">${(totalRata).toFixed(2)}</th>
+      </tr>
+      <tr>
+        <th colspan="3" style="border:1px solid #000;">Rata-rata Semua Semester</th>
+        <th style="border:1px solid #000;">${(totalRata / 5).toFixed(2)}</th>
+      </tr>
+    </table>
+    `;
+
+    // Signature & Footer
+    const today = new Date();
+    const tgl = `${today.getDate().toString().padStart(2, '0')}-${(today.getMonth()+1).toString().padStart(2, '0')}-${today.getFullYear()}`;
+    const signature = `
+      <div class="footer" style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:0;">
+        <div style="text-align:left;">
+          Gowa, ${tgl}<br>
+          <span style="font-weight:bold;">Calon Murid,</span>
+        </div>
+        <div style="text-align:right;">
+          Mengetahui,<br>
+          <span style="font-weight:bold;">Orang Tua/Wali,</span>
+        </div>
+      </div>
+      <div class="signature-section" style="margin-top:24px;">
+        <div class="signature-box" style="text-align:left;">
+          <div style="height:48px;"></div>
+          <div style="text-decoration:underline;">${studentData.nama}</div>
+        </div>
+        <div class="signature-box" style="text-align:right;">
+          <div style="height:48px;"></div>
+          <div style="text-decoration:underline;">${studentData.ortu}</div>
+        </div>
+      </div>
+    `;
+
+    // Tombol aksi
+    let actionButtons = '';
+    if (!hideButtons) {
+      actionButtons = `
+        <div style="text-align:center; margin-top:24px;">
+          <button id="edit-btn">Edit</button>
+          <button id="print-btn">Cetak</button>
+          <button id="pdf-btn">Simpan PDF</button>
+          <button id="excel-btn">Simpan Excel</button>
+        </div>
+      `;
+    }
+
+    summarySection.innerHTML = `
+      <h2 style="margin-top:8px;">Rekap Nilai Rapor SMP/MTs/Sederajat</h2>
+      ${siswaTable}
+      <h3>Nilai Semester 1-5</h3>
+      ${nilaiTable}
+      ${signature}
+      ${actionButtons}
+    `;
+    mainContainer.scrollIntoView({behavior: 'smooth'});
+
+    // Tombol Cetak
+    if (!hideButtons) {
+      document.getElementById('print-btn').onclick = function() {
+        window.print();
+      };
+
+      // Tombol Simpan PDF
+      document.getElementById('pdf-btn').onclick = function() {
+        showSummary(true);
+        setTimeout(() => {
+          const report = summarySection;
+          html2canvas(report, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#fff',
+            windowWidth: report.scrollWidth,
+            windowHeight: report.scrollHeight
+          }).then(canvas => {
+            const imgData = canvas.toDataURL('image/png');
+            let jsPDFConstructor = window.jspdf && window.jspdf.jsPDF ? window.jspdf.jsPDF : window.jsPDF;
+            if (!jsPDFConstructor) {
+              alert('jsPDF tidak ditemukan. Pastikan koneksi internet dan CDN jsPDF sudah dimuat.');
+              showSummary(false);
+              return;
+            }
+            const pdf = new jsPDFConstructor({
+              orientation: 'portrait',
+              unit: 'pt',
+              format: 'a4'
+            });
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            let imgWidth = pageWidth - 40;
+            let imgHeight = canvas.height * imgWidth / canvas.width;
+            if (imgHeight > pageHeight - 40) {
+              imgHeight = pageHeight - 40;
+              imgWidth = canvas.width * imgHeight / canvas.height;
+            }
+            const x = (pageWidth - imgWidth) / 2;
+            const y = 20;
+            pdf.addImage(imgData, 'PNG', x, y, imgWidth, imgHeight);
+            // Nama file: Rekap Nilai Rapor {Nama Calon Murid}.pdf
+            const namaFile = `Rekap Nilai Rapor ${studentData.nama}.pdf`;
+            pdf.save(namaFile);
+            showSummary(false);
+          });
+        }, 100);
+      };
+
+      // Tombol Edit
+      document.getElementById('edit-btn').onclick = function() {
+        summarySection.classList.add('hidden');
+        // Kembali ke menu awal input data calon murid
+        // Prefill data sebelumnya
+        document.getElementById('nama').value = studentData.nama || '';
+        document.getElementById('nisn').value = studentData.nisn || '';
+        document.getElementById('asal').value = studentData.asal || '';
+        document.getElementById('ortu').value = studentData.ortu || '';
+        studentForm.classList.remove('hidden');
+        currentStep = 'dataDiri';
+      };
+
+      // Tombol Simpan Excel
+      document.getElementById('excel-btn').onclick = function() {
+        // Header atas Excel
+        const ws_data = [
+          ["SPMB SMAN 14 Gowa"],
+          ["Rekap Nilai Rapor SMP/MTs/Sederajat"],
+          [],
+          ["Data Calon Murid"],
+          ["Nama Murid", studentData.nama],
+          ["NISN", studentData.nisn],
+          ["Asal Sekolah", studentData.asal],
+          ["Nama Orang Tua/Wali", studentData.ortu],
+          [],
+          ["Rekap Nilai"],
+        ];
+
+        // Header tabel rekap nilai
+        // Hitung jumlah kolom nilai mapel terbanyak
+        const maxMapel = Math.max(...semesterScores.map(s => s.nilai.length));
+        const nilaiHeaders = [];
+        for (let i = 1; i <= maxMapel; i++) {
+          nilaiHeaders.push("Nilai Mapel " + i);
+        }
+        ws_data.push(["Semester", "Jumlah Mapel", ...nilaiHeaders, "Rata-rata"]);
+
+        // Data nilai per semester
+        semesterScores.forEach((s, idx) => {
+          // Nilai mapel, jika kurang dari maxMapel, tambahkan kosong
+          const nilaiKolom = s.nilai.map(n => n); // <-- JANGAN pakai .toFixed(2)
+          while (nilaiKolom.length < maxMapel) nilaiKolom.push("");
+          // Rumus rata-rata Excel
+          const baris = ws_data.length + 1;
+          const kolAwalChar = String.fromCharCode(67); // C
+          const kolAkhirChar = String.fromCharCode(66 + maxMapel); // C + maxMapel - 1
+          ws_data.push([
+            s.semester,
+            s.jumlahMapel,
+            ...nilaiKolom,
+            {f: `IFERROR(ROUND(AVERAGE(${kolAwalChar}${baris}:${kolAkhirChar}${baris}),2),"")`}
+          ]);
+        });
+
+        // Baris total rata-rata
+        const firstRataRow = ws_data.length - semesterScores.length + 1;
+        const lastRataRow = ws_data.length;
+        const rataColChar = String.fromCharCode(66 + maxMapel + 1); // Kolom rata-rata
+        ws_data.push([
+          "",
+          "",
+          ...Array(maxMapel).fill(""),
+          {f: `IFERROR(ROUND(SUM(${rataColChar}${firstRataRow}:${rataColChar}${lastRataRow}),2),"")`, t: "Total Rata-rata"}
+        ]);
+        // Baris rata-rata semua semester
+        ws_data.push([
+          "",
+          "",
+          ...Array(maxMapel).fill(""),
+          {f: `IFERROR(ROUND(${rataColChar}${lastRataRow+1}/5,2),"")`, t: "Rata-rata Semua Semester"}
+        ]);
+
+        // Buat worksheet dan workbook
+        const ws = XLSX.utils.aoa_to_sheet(ws_data);
+
+        // Tambahkan border ke seluruh tabel rekap nilai
+        const startRow = ws_data.findIndex(r => Array.isArray(r) && r[0] === "Semester") + 1;
+        const endRow = ws_data.length;
+        const totalCol = 2 + maxMapel + 1;
+        for (let r = startRow; r < endRow; r++) {
+          for (let c = 0; c < totalCol; c++) {
+            const cell = ws[XLSX.utils.encode_cell({r, c})];
+            if (cell) {
+              if (!cell.s) cell.s = {};
+              cell.s.border = {
+                top: {style: "thin"},
+                bottom: {style: "thin"},
+                left: {style: "thin"},
+                right: {style: "thin"}
+              };
+              // Hanya kolom rata-rata (kolom paling kanan) yang diformat 2 digit di belakang koma
+              if (c === totalCol - 1 && cell.v !== "" && !isNaN(cell.v)) {
+                cell.z = '0.00';
+              }
+            }
+          }
+        }
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Nilai");
+        // Nama file: Rekap Nilai Rapor {Nama Calon Murid}.xlsx
+        const namaFile = `Rekap Nilai Rapor ${studentData.nama}.xlsx`;
+        XLSX.writeFile(wb, namaFile);
+      };
+    }
+  }
+
+  // Prefill jika user kembali ke step sebelumnya
+  // (Sudah otomatis di setiap render step di atas)
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</body>
+</html>
